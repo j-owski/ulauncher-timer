@@ -1,4 +1,5 @@
 import re
+import datetime
 
 
 TIME_MULT = {
@@ -16,17 +17,45 @@ def parse_query(query, default_text='Time is up!'):
     <<< (3*60*60, '3h', 'Go')
     >>> '5'
     <<< (300, '5', 'Time is up!')
+    >>> 'at 15:30'
+    <<< (timedelate_from_now_in_seconds, '15:30', 'Time is up!')
+    >>> 'at 15'
+    <<< (timedelate_from_now_in_seconds, '15', 'Time is up!')
     """
     try:
-        time_arg = query.split(' ')[0]
-        assert time_arg, "Incorrect time"
-        m = re.match(r'^(?P<time>\d+)(?P<measure>[mhs])?$', time_arg, re.I)
-        time_sec = int(m.group('time')) * TIME_MULT[(m.group('measure') or 'm').lower()]
+        regex = r'''
+        ^((
+            (?P<at>at\ )            # at
+            (?P<clock>
+                (2[0-3]|[01]?[0-9]) # 0-23
+                (:([0-5][0-9]))?    # :0-59 (optional)
+            )
+        )|                          # OR
+            ^(?P<time>\d+)          # 0-infinite digit
+            (?P<measure>[mhs])?     # mhs (optional, default: m)
+        )                              
+        (?P<message>\ .*)?$         # optional message
+        '''
+        m = re.match(regex, query, re.IGNORECASE | re.VERBOSE)
+        
+        if m.group('at') is not None:
+            now = datetime.datetime.now()
+            clock = m.group('clock').split(":")
 
-        message = ' '.join(query.split(' ')[1:]).strip()
-        message = message or default_text
+            # if input has no minutes set to 0
+            if(len(clock) == 1):
+                  clock.append(0)
+            # calculate delta between now and inputed clock
+            # if clock > now: set timer to next day
+            time_sec = int((datetime.timedelta(hours=24) - (now - now.replace(hour=int(clock[0]), minute=int(clock[1])))).total_seconds() % (24 * 3600)) 
+            time_arg = m.group('clock')
+        else:
+            time_sec = int(m.group('time')) * TIME_MULT[(m.group('measure') or 'm').lower()]
+            time_arg = m.group('time') + (m.group('measure') or "")
 
-        return (time_sec, time_arg, message)
+        message = m.group('message') or default_text
+
+        return (time_sec, time_arg, message[1:])
     except Exception as e:
         raise ParseQueryError(str(e))
 
